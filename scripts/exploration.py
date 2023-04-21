@@ -13,4 +13,3 @@ if __name__ == "__main__":
         ax.set_title(borough)
     fig.tight_layout()
     plt.show()
-    fig.savefig("../plots/avg_price_vs_time_by_borough.png", bbox_inches="tight")
