@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def plot_var(df, var_name):
     areas = df["area"].unique()
-    fig, axs = plt.subplots(5, 9, sharex=True, sharey=True)
+    fig, axs = plt.subplots(5, 9, sharex=True)
     axs = axs.reshape(-1)
     start_date = sorted(df["date"])[0]
     for area, ax in zip(areas, axs):
@@ -18,3 +18,4 @@ def plot_var(df, var_name):
 if __name__ == "__main__":
     monthly_data, yearly_data = load_dataset()
     plot_var(monthly_data, "average_price")
+    plot_var(monthly_data, "average_price_d1")

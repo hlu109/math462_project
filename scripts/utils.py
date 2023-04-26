@@ -3,6 +3,7 @@ import re
 import os
 import matplotlib.pyplot as plt
 import itertools
+import numpy as np
 
 # Default matplotlib colors
 prop_cycle = plt.rcParams['axes.prop_cycle']
@@ -100,11 +101,26 @@ def load_dataset():
     monthly_data = pd.read_csv(
         "../dataset/housing_in_london_monthly_variables.csv")
     monthly_data["date"] = pd.to_datetime(monthly_data["date"])
+    monthly_data.sort_values(["area", "date"], inplace=True)
+    monthly_data.reset_index()
+    add_column_derivative(monthly_data, "average_price", "average_price_d1")
+
     yearly_data = pd.read_csv(
         "../dataset/housing_in_london_yearly_variables.csv")
     yearly_data["date"] = pd.to_datetime(yearly_data["date"])
+    yearly_data.sort_values(["area", "date"], inplace=True)
+    yearly_data.reset_index()
     return monthly_data, yearly_data
 
+def add_column_derivative(data, column, new_column):
+    data[new_column] = np.full(data.shape[0], np.nan)
+    for area in data["area"].unique():
+        mask = data["area"] == area
+        area_data = data[mask]
+        diff = np.concatenate([[0], np.diff(area_data[column])])
+        idxs = data.index[mask]
+        data.loc[idxs, new_column] = diff
+    return data
 
 def get_area(data, area):
     return data[data["area"] == area]
