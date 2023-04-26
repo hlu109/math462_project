@@ -4,10 +4,12 @@ import os
 import matplotlib.pyplot as plt
 import itertools
 import numpy as np
+from datetime import datetime
 
 # Default matplotlib colors
 prop_cycle = plt.rcParams['axes.prop_cycle']
 colors = prop_cycle.by_key()['color']
+
 
 def find_files(*sources, name=None, extension=None):
     '''
@@ -51,7 +53,9 @@ def find_files(*sources, name=None, extension=None):
                         extension.fullmatch(fileext) is not None:
                             yield entry
             entries.close()
+
     return find_files_helper(*sources)
+
 
 def imerge(*its, enum=False):
     '''Merge iterators end to end'''
@@ -62,11 +66,13 @@ def imerge(*its, enum=False):
             else:
                 yield el
 
+
 def pairwise(iterable):
     '''s -> (s0,s1), (s1,s2), (s2, s3), ...'''
     a, b = itertools.tee(iterable)
     next(b, None)
     return zip(a, b)
+
 
 def mkdir(path):
     '''Create a directory if it does not exist'''
@@ -78,11 +84,13 @@ def mkdir(path):
         mkdir(parent)
         os.mkdir(path)
 
+
 def savefig(fig, savepath, *args, **kwargs):
     '''Save a given figure to the given path, creating a directory as needed and making sure not to overwrite files'''
     savedir, _ = os.path.split(savepath)
     mkdir(savedir)
     fig.savefig(savepath, *args, **kwargs)
+
 
 def add_version(savepath, replace=False):
     '''Appends a version number to the end of a path if that path already exists with the given name and if replace is False'''
@@ -97,7 +105,13 @@ def add_version(savepath, replace=False):
             new_savepath = '{} ({}){}'.format(savefile, version, saveext)
         return new_savepath
 
+
 def load_dataset():
+    '''
+    Load in both the monthly and yearly csv files.
+    Sort by area and then date, and add the time derivative of average price under the column average_price_d1.
+    Also, add a months column that records months since 
+    '''
     monthly_data = pd.read_csv(
         "../dataset/housing_in_london_monthly_variables.csv")
     monthly_data["date"] = pd.to_datetime(monthly_data["date"])
@@ -110,17 +124,125 @@ def load_dataset():
     yearly_data["date"] = pd.to_datetime(yearly_data["date"])
     yearly_data.sort_values(["area", "date"], inplace=True)
     yearly_data.reset_index()
+
+    # add column for year and month
+    monthly_data['year'] = pd.DatetimeIndex(monthly_data['date']).year
+    yearly_data['year'] = pd.DatetimeIndex(yearly_data['date']).year
+    monthly_data['month'] = pd.DatetimeIndex(monthly_data['date']).month
+    yearly_data['month'] = pd.DatetimeIndex(yearly_data['date']).month
+
+    start_time = monthly_data["date"][0]
+
+    def make_column(area_data):
+        return [dt.total_seconds() for dt in area_data["date"] - start_time]
+
+    add_column_by_area(monthly_data, "seconds", make_column)
+    add_column_by_area(yearly_data, "seconds", make_column)
+
     return monthly_data, yearly_data
 
-def add_column_derivative(data, column, new_column):
+
+def add_column_by_area(data, new_column, make_column):
     data[new_column] = np.full(data.shape[0], np.nan)
     for area in data["area"].unique():
         mask = data["area"] == area
         area_data = data[mask]
-        diff = np.concatenate([[0], np.diff(area_data[column])])
         idxs = data.index[mask]
-        data.loc[idxs, new_column] = diff
+        data.loc[idxs, new_column] = make_column(area_data)
     return data
+
+
+def add_column_derivative(data, column, new_column):
+    # data[new_column] = np.full(data.shape[0], np.nan)
+    # for area in data["area"].unique():
+    #     mask = data["area"] == area
+    #     area_data = data[mask]
+    #     diff = np.concatenate([[0], np.diff(area_data[column])])
+    #     idxs = data.index[mask]
+    #     data.loc[idxs, new_column] = diff
+    # return data
+
+    def make_column(area_data):
+        return np.concatenate([[0], np.diff(area_data[column])])
+
+    return add_column_by_area(data, new_column, make_column)
+
 
 def get_area(data, area):
     return data[data["area"] == area]
+
+
+def filter_time(df,
+                start_time=datetime(1995, 1, 1, 0, 0, 0),
+                end_time=datetime(2020, 1, 1, 0, 0, 0)):
+    '''Filter out rows whose time does not fall between the given start and end times.'''
+    dates = pd.to_datetime(df["date"])
+    if start_time == None and end_time == None:
+        return df
+    elif start_time == None:
+        return df[(dates <= end_time)]
+    elif end_time == None:
+        return df[(start_time <= dates)]
+    else:
+        return df[(start_time <= dates) & (dates <= end_time)]
+
+
+def project_time_series(ref, ts, key=None, reversed=False):
+    '''Function to project a time series onto a reference time series'''
+    # Create key function if it does not exist yet
+    if key is None:
+        key = lambda x: x
+
+    if reversed:
+        # Set up some book keeping
+        it = iter(ref)
+        r = next(it)
+        t_last = None
+
+        for t, t_next in pairwise(ts):
+            t_last = t_next
+            try:
+                while key(r) < key(t):
+                    yield (r, None)
+                    r = next(it)
+
+                while key(t) <= key(r) and key(r) < key(t_next):
+                    yield (r, t)
+                    r = next(it)
+            except StopIteration:
+                return
+
+        try:
+            while True:
+                yield (r, t_last)
+                r = next(it)
+        except StopIteration:
+            return
+    else:
+        # Set up some book keeping
+        it = iter(ts)
+        counter = next(it)
+        r_last = None
+
+        def get_next(r, start):
+            # Try getting the next value of the iterator thats larger than r
+            counter = start
+            try:
+                while counter is not None and key(counter) < key(r):
+                    counter = next(it)
+            except StopIteration:
+                counter = None
+            return counter
+
+        # Iterate through the reference timeseries
+        for r, r_next in pairwise(ref):
+            r_last = r_next
+
+            counter = get_next(r, counter)
+            if counter is not None and key(counter) < key(r_next):
+                yield (r, counter)
+            else:
+                yield (r, None)
+
+        counter = get_next(r_last, counter)
+        yield (r_last, counter)
