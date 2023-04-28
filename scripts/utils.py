@@ -106,6 +106,19 @@ def add_version(savepath, replace=False):
         return new_savepath
 
 
+def clean_load_dataset(file_path):
+    df = pd.read_csv(file_path)
+    df["date"] = pd.to_datetime(df["date"])
+    df.sort_values(["area", "date"], inplace=True)
+    df.reset_index()
+
+    # add column for year and month
+    df['year'] = pd.DatetimeIndex(df['date']).year
+    df['month'] = pd.DatetimeIndex(df['date']).month
+
+    return df
+
+
 def load_dataset():
     '''
     Load in both the monthly and yearly csv files.

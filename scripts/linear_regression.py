@@ -1,5 +1,6 @@
 import utils
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import timedelta
 from sklearn.pipeline import make_pipeline
@@ -13,7 +14,8 @@ if __name__ == "__main__":
 
     def to_date(seconds):
         start_time = monthly_data["date"][0]
-        return [start_time + timedelta(seconds=num) for num in seconds]
+        return np.array(
+            [start_time + timedelta(seconds=num) for num in seconds])
 
     area_data = utils.get_area(monthly_data, area)
 
@@ -38,7 +40,7 @@ if __name__ == "__main__":
     # y_pred = polynomial_regression.predict(X_test)
 
     plt.plot(X, y)
-    plt.plot(to_date(X_train.reshape(-1)),
-             polynomial_regression.predict(X_train))
-    plt.plot(to_date(X_test.reshape(-1)), polynomial_regression.predict(X_test))
+    plt.gca().set_xticks([])
+    plt.plot(X_train.reshape(-1), polynomial_regression.predict(X_train))
+    plt.plot(X_test.reshape(-1), polynomial_regression.predict(X_test))
     plt.show()
