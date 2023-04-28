@@ -259,3 +259,43 @@ def project_time_series(ref, ts, key=None, reversed=False):
 
         counter = get_next(r_last, counter)
         yield (r_last, counter)
+
+
+def interpolate_yearly(monthly_data, yearly_resampled, col, interpolate=True):
+    assert col in yearly_resampled.columns
+    # by month and area
+    # yearly data covers range 1999 to 2019 (all on dec 1)
+    # for the years in the monthly data that aren't covered in the yearly data, we just copy the nearest yearly data
+    min_year = 1999
+    max_year = 2019
+
+    for a in yearly_resampled.area.unique():
+        if a not in monthly_data.area.unique():
+            continue
+
+        # copy interpolated data between min and max year
+        monthly_data.loc[
+            (monthly_data.area == a) & (monthly_data.year > min_year) &
+            (monthly_data.year <= max_year),
+            col] = yearly_resampled.loc[(yearly_resampled.area == a)
+                                        & (yearly_resampled.year > min_year) &
+                                        (yearly_resampled.year <= max_year),
+                                        col].values
+
+        # copy constant-filled data before min year
+        monthly_data.loc[(monthly_data.area == a)
+                         & (monthly_data.year <= min_year),
+                         col] = yearly_resampled.loc[
+                             (yearly_resampled.area == a)
+                             & (yearly_resampled.year == min_year),
+                             col].values[0]
+
+        # copy constant-filled data after max year
+        monthly_data.loc[(monthly_data.area == a)
+                         & (monthly_data.year > max_year),
+                         col] = yearly_resampled.loc[
+                             (yearly_resampled.area == a)
+                             & (yearly_resampled.year == max_year) &
+                             (yearly_resampled.month == 12), col].values[0]
+
+    return monthly_data
