@@ -107,6 +107,10 @@ def add_version(savepath, replace=False):
 
 
 def clean_load_dataset(file_path):
+    """ Loads a csv file into a dataframe. 
+    
+        Sort by area and then date. Adds columns for year and month. 
+    """
     df = pd.read_csv(file_path)
     df["date"] = pd.to_datetime(df["date"])
     df.sort_values(["area", "date"], inplace=True)
@@ -123,26 +127,31 @@ def load_dataset():
     '''
     Load in both the monthly and yearly csv files.
     Sort by area and then date, and add the time derivative of average price under the column average_price_d1.
-    Also, add a months column that records months since 
+
+    Adds columns for year and month. Also, add a column that records seconds since the earliest data sample (?).
     '''
-    monthly_data = pd.read_csv(
+    monthly_data = clean_load_dataset(
         "../dataset/housing_in_london_monthly_variables.csv")
-    monthly_data["date"] = pd.to_datetime(monthly_data["date"])
-    monthly_data.sort_values(["area", "date"], inplace=True)
-    monthly_data.reset_index()
+    # monthly_data = pd.read_csv(
+    #     "../dataset/housing_in_london_monthly_variables.csv")
+    # monthly_data["date"] = pd.to_datetime(monthly_data["date"])
+    # monthly_data.sort_values(["area", "date"], inplace=True)
+    # monthly_data.reset_index()
     add_column_derivative(monthly_data, "average_price", "average_price_d1")
 
-    yearly_data = pd.read_csv(
+    yearly_data = clean_load_dataset(
         "../dataset/housing_in_london_yearly_variables.csv")
-    yearly_data["date"] = pd.to_datetime(yearly_data["date"])
-    yearly_data.sort_values(["area", "date"], inplace=True)
-    yearly_data.reset_index()
+    # yearly_data = pd.read_csv(
+    #     "../dataset/housing_in_london_yearly_variables.csv")
+    # yearly_data["date"] = pd.to_datetime(yearly_data["date"])
+    # yearly_data.sort_values(["area", "date"], inplace=True)
+    # yearly_data.reset_index()
 
     # add column for year and month
-    monthly_data['year'] = pd.DatetimeIndex(monthly_data['date']).year
-    yearly_data['year'] = pd.DatetimeIndex(yearly_data['date']).year
-    monthly_data['month'] = pd.DatetimeIndex(monthly_data['date']).month
-    yearly_data['month'] = pd.DatetimeIndex(yearly_data['date']).month
+    # monthly_data['year'] = pd.DatetimeIndex(monthly_data['date']).year
+    # yearly_data['year'] = pd.DatetimeIndex(yearly_data['date']).year
+    # monthly_data['month'] = pd.DatetimeIndex(monthly_data['date']).month
+    # yearly_data['month'] = pd.DatetimeIndex(yearly_data['date']).month
 
     start_time = monthly_data["date"][0]
 
@@ -153,6 +162,23 @@ def load_dataset():
     add_column_by_area(yearly_data, "seconds", make_column)
 
     return monthly_data, yearly_data
+
+
+def load_interpolated_data():
+    """ Returns a single dataframe containing monthly data, along with yearly 
+        data that has been interpolated at a monthly frequency. 
+    """
+    monthly_data, yearly_data = load_dataset()
+    yearly_resampled = clean_load_dataset(
+        "../dataset/housing_in_london_yearly_variables_resampled.csv")
+    for col in [
+            'median_salary', 'life_satisfaction', 'population_size',
+            'number_of_jobs', 'area_size', 'no_of_houses'
+    ]:
+        monthly_data = interpolate_yearly(monthly_data,
+                                          yearly_resampled,
+                                          col=col)
+    return monthly_data
 
 
 def add_column_by_area(data, new_column, make_column):
