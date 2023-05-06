@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import itertools
 import numpy as np
 from datetime import datetime
+import statsmodels.tsa.api as smt
 
 # Default matplotlib colors
 prop_cycle = plt.rcParams['axes.prop_cycle']
@@ -325,3 +326,42 @@ def interpolate_yearly(monthly_data, yearly_resampled, col, interpolate=True):
                              (yearly_resampled.month == 12), col].values[0]
 
     return monthly_data
+
+
+def plot_multi_acf(data, lags, titles, suptitle='', ylim=None, partial=False):
+    """ Plot autocorrelation at a variety of frequencies. 
+    
+        Copied from https://www.ethanrosenthal.com/2018/03/22/time-series-for-scikit-learn-people-part2/
+        
+        Args: 
+            lags: list of frequencies 
+    """
+    num_plots = len(lags)
+    fig, ax = plt.subplots(len(lags), 1, figsize=(8, 2 * num_plots))
+    fig.suptitle(suptitle)
+    if num_plots == 1:
+        ax = [ax]
+    acf_func = smt.graphics.plot_pacf if partial else smt.graphics.plot_acf
+    for idx, (lag, title) in enumerate(zip(lags, titles)):
+        ax[idx] = acf_func(data, lags=lag, ax=ax[idx], title=title)
+        if ylim is not None:
+            ax[idx].set_ylim(ylim)
+
+    fig.tight_layout()
+
+
+def create_windowed_dataset(dataset, look_back=1, look_forward=1):
+    """ creates new time series data with past datapoints as input features. 
+    
+    Copied from https://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
+    
+        Args:
+            dataset: time series array
+            look_back (int): num of previous time steps to use as input variables to predict the next time period
+    """
+    dataX, dataY = [], []
+    for i in range(len(dataset) - look_back - look_forward):
+        a = dataset[i:(i + look_back), 0]
+        dataX.append(a)
+        dataY.append(dataset[(i + look_back):(i + look_back + look_forward), 0])
+    return np.array(dataX), np.array(dataY)
