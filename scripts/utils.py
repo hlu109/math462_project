@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import itertools
 import numpy as np
 from datetime import datetime
+import statsmodels.tsa.api as smt
 
 # Default matplotlib colors
 prop_cycle = plt.rcParams['axes.prop_cycle']
@@ -106,30 +107,52 @@ def add_version(savepath, replace=False):
         return new_savepath
 
 
+def clean_load_dataset(file_path):
+    """ Loads a csv file into a dataframe. 
+    
+        Sort by area and then date. Adds columns for year and month. 
+    """
+    df = pd.read_csv(file_path)
+    df["date"] = pd.to_datetime(df["date"])
+    df.sort_values(["area", "date"], inplace=True)
+    df.reset_index()
+
+    # add column for year and month
+    df['year'] = pd.DatetimeIndex(df['date']).year
+    df['month'] = pd.DatetimeIndex(df['date']).month
+
+    return df
+
+
 def load_dataset():
     '''
     Load in both the monthly and yearly csv files.
     Sort by area and then date, and add the time derivative of average price under the column average_price_d1.
-    Also, add a months column that records months since 
+
+    Adds columns for year and month. Also, add a column that records seconds since the earliest data sample (?).
     '''
-    monthly_data = pd.read_csv(
+    monthly_data = clean_load_dataset(
         "../dataset/housing_in_london_monthly_variables.csv")
-    monthly_data["date"] = pd.to_datetime(monthly_data["date"])
-    monthly_data.sort_values(["area", "date"], inplace=True)
-    monthly_data.reset_index()
+    # monthly_data = pd.read_csv(
+    #     "../dataset/housing_in_london_monthly_variables.csv")
+    # monthly_data["date"] = pd.to_datetime(monthly_data["date"])
+    # monthly_data.sort_values(["area", "date"], inplace=True)
+    # monthly_data.reset_index()
     add_column_derivative(monthly_data, "average_price", "average_price_d1")
 
-    yearly_data = pd.read_csv(
+    yearly_data = clean_load_dataset(
         "../dataset/housing_in_london_yearly_variables.csv")
-    yearly_data["date"] = pd.to_datetime(yearly_data["date"])
-    yearly_data.sort_values(["area", "date"], inplace=True)
-    yearly_data.reset_index()
+    # yearly_data = pd.read_csv(
+    #     "../dataset/housing_in_london_yearly_variables.csv")
+    # yearly_data["date"] = pd.to_datetime(yearly_data["date"])
+    # yearly_data.sort_values(["area", "date"], inplace=True)
+    # yearly_data.reset_index()
 
     # add column for year and month
-    monthly_data["year"] = pd.DatetimeIndex(monthly_data["date"]).year
-    yearly_data["year"] = pd.DatetimeIndex(yearly_data["date"]).year
-    monthly_data["month"] = pd.DatetimeIndex(monthly_data["date"]).month
-    yearly_data["month"] = pd.DatetimeIndex(yearly_data["date"]).month
+    # monthly_data['year'] = pd.DatetimeIndex(monthly_data['date']).year
+    # yearly_data['year'] = pd.DatetimeIndex(yearly_data['date']).year
+    # monthly_data['month'] = pd.DatetimeIndex(monthly_data['date']).month
+    # yearly_data['month'] = pd.DatetimeIndex(yearly_data['date']).month
 
     start_time = monthly_data["date"][0]
 
@@ -140,6 +163,23 @@ def load_dataset():
     add_column_by_area(yearly_data, "seconds", make_column)
 
     return monthly_data, yearly_data
+
+
+def load_interpolated_data():
+    """ Returns a single dataframe containing monthly data, along with yearly 
+        data that has been interpolated at a monthly frequency. 
+    """
+    monthly_data, yearly_data = load_dataset()
+    yearly_resampled = clean_load_dataset(
+        "../dataset/housing_in_london_yearly_variables_resampled.csv")
+    for col in [
+            'median_salary', 'life_satisfaction', 'population_size',
+            'number_of_jobs', 'area_size', 'no_of_houses'
+    ]:
+        monthly_data = interpolate_yearly(monthly_data,
+                                          yearly_resampled,
+                                          col=col)
+    return monthly_data
 
 
 def add_column_by_area(data, new_column, make_column):
@@ -248,3 +288,82 @@ def project_time_series(ref, ts, key=None, reversed=False):
 
         counter = get_next(r_last, counter)
         yield (r_last, counter)
+
+
+def interpolate_yearly(monthly_data, yearly_resampled, col, interpolate=True):
+    assert col in yearly_resampled.columns
+    # by month and area
+    # yearly data covers range 1999 to 2019 (all on dec 1)
+    # for the years in the monthly data that aren't covered in the yearly data, we just copy the nearest yearly data
+    min_year = 1999
+    max_year = 2019
+
+    for a in yearly_resampled.area.unique():
+        if a not in monthly_data.area.unique():
+            continue
+
+        # copy interpolated data between min and max year
+        monthly_data.loc[
+            (monthly_data.area == a) & (monthly_data.year > min_year) &
+            (monthly_data.year <= max_year),
+            col] = yearly_resampled.loc[(yearly_resampled.area == a)
+                                        & (yearly_resampled.year > min_year) &
+                                        (yearly_resampled.year <= max_year),
+                                        col].values
+
+        # copy constant-filled data before min year
+        monthly_data.loc[(monthly_data.area == a)
+                         & (monthly_data.year <= min_year),
+                         col] = yearly_resampled.loc[
+                             (yearly_resampled.area == a)
+                             & (yearly_resampled.year == min_year),
+                             col].values[0]
+
+        # copy constant-filled data after max year
+        monthly_data.loc[(monthly_data.area == a)
+                         & (monthly_data.year > max_year),
+                         col] = yearly_resampled.loc[
+                             (yearly_resampled.area == a)
+                             & (yearly_resampled.year == max_year) &
+                             (yearly_resampled.month == 12), col].values[0]
+
+    return monthly_data
+
+
+def plot_multi_acf(data, lags, titles, suptitle='', ylim=None, partial=False):
+    """ Plot autocorrelation at a variety of frequencies. 
+    
+        Copied from https://www.ethanrosenthal.com/2018/03/22/time-series-for-scikit-learn-people-part2/
+        
+        Args: 
+            lags: list of frequencies 
+    """
+    num_plots = len(lags)
+    fig, ax = plt.subplots(len(lags), 1, figsize=(8, 2 * num_plots))
+    fig.suptitle(suptitle)
+    if num_plots == 1:
+        ax = [ax]
+    acf_func = smt.graphics.plot_pacf if partial else smt.graphics.plot_acf
+    for idx, (lag, title) in enumerate(zip(lags, titles)):
+        ax[idx] = acf_func(data, lags=lag, ax=ax[idx], title=title)
+        if ylim is not None:
+            ax[idx].set_ylim(ylim)
+
+    fig.tight_layout()
+
+
+def create_windowed_dataset(dataset, look_back=1, look_forward=1):
+    """ creates new time series data with past datapoints as input features. 
+    
+    Copied from https://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
+    
+        Args:
+            dataset: time series array
+            look_back (int): num of previous time steps to use as input variables to predict the next time period
+    """
+    dataX, dataY = [], []
+    for i in range(len(dataset) - look_back - look_forward):
+        a = dataset[i:(i + look_back), 0]
+        dataX.append(a)
+        dataY.append(dataset[(i + look_back):(i + look_back + look_forward), 0])
+    return np.array(dataX), np.array(dataY)
