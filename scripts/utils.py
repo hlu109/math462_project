@@ -126,10 +126,10 @@ def load_dataset():
     yearly_data.reset_index()
 
     # add column for year and month
-    monthly_data['year'] = pd.DatetimeIndex(monthly_data['date']).year
-    yearly_data['year'] = pd.DatetimeIndex(yearly_data['date']).year
-    monthly_data['month'] = pd.DatetimeIndex(monthly_data['date']).month
-    yearly_data['month'] = pd.DatetimeIndex(yearly_data['date']).month
+    monthly_data["year"] = pd.DatetimeIndex(monthly_data["date"]).year
+    yearly_data["year"] = pd.DatetimeIndex(yearly_data["date"]).year
+    monthly_data["month"] = pd.DatetimeIndex(monthly_data["date"]).month
+    yearly_data["month"] = pd.DatetimeIndex(yearly_data["date"]).month
 
     start_time = monthly_data["date"][0]
 
@@ -163,7 +163,9 @@ def add_column_derivative(data, column, new_column):
     # return data
 
     def make_column(area_data):
-        return np.concatenate([[0], np.diff(area_data[column])])
+        dcol = np.diff(area_data[column])
+        dt = [delta / np.timedelta64(1, "s") for delta in np.diff(area_data["date"])]
+        return np.concatenate([[0], dcol / dt])
 
     return add_column_by_area(data, new_column, make_column)
 
