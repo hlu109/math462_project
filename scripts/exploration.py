@@ -12,10 +12,10 @@ def plot_var(df, var_name):
         ax.set_title(area)
     fig.tight_layout()
     plt.show()
-    fig.savefig("../plots/{}_vs_time_by_area.png".format(var_name),
-                bbox_inches="tight")
+    # fig.savefig("../plots/{}_vs_time_by_area.png".format(var_name),
+    #             bbox_inches="tight")
 
 if __name__ == "__main__":
-    monthly_data, yearly_data = load_dataset()
+    monthly_data = load_interpolated_data()
     plot_var(monthly_data, "average_price")
     plot_var(monthly_data, "average_price_d1")
