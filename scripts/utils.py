@@ -203,7 +203,9 @@ def add_column_derivative(data, column, new_column):
     # return data
 
     def make_column(area_data):
-        return np.concatenate([[0], np.diff(area_data[column])])
+        dcol = np.diff(area_data[column])
+        dt = [delta / np.timedelta64(1, "s") for delta in np.diff(area_data["date"])]
+        return np.concatenate([[0], dcol / dt])
 
     return add_column_by_area(data, new_column, make_column)
 
