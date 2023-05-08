@@ -133,26 +133,10 @@ def load_dataset():
     '''
     monthly_data = clean_load_dataset(
         "../dataset/housing_in_london_monthly_variables.csv")
-    # monthly_data = pd.read_csv(
-    #     "../dataset/housing_in_london_monthly_variables.csv")
-    # monthly_data["date"] = pd.to_datetime(monthly_data["date"])
-    # monthly_data.sort_values(["area", "date"], inplace=True)
-    # monthly_data.reset_index()
     add_column_derivative(monthly_data, "average_price", "average_price_d1")
 
     yearly_data = clean_load_dataset(
         "../dataset/housing_in_london_yearly_variables.csv")
-    # yearly_data = pd.read_csv(
-    #     "../dataset/housing_in_london_yearly_variables.csv")
-    # yearly_data["date"] = pd.to_datetime(yearly_data["date"])
-    # yearly_data.sort_values(["area", "date"], inplace=True)
-    # yearly_data.reset_index()
-
-    # add column for year and month
-    # monthly_data['year'] = pd.DatetimeIndex(monthly_data['date']).year
-    # yearly_data['year'] = pd.DatetimeIndex(yearly_data['date']).year
-    # monthly_data['month'] = pd.DatetimeIndex(monthly_data['date']).month
-    # yearly_data['month'] = pd.DatetimeIndex(yearly_data['date']).month
 
     start_time = monthly_data["date"][0]
 
@@ -193,19 +177,13 @@ def add_column_by_area(data, new_column, make_column):
 
 
 def add_column_derivative(data, column, new_column):
-    # data[new_column] = np.full(data.shape[0], np.nan)
-    # for area in data["area"].unique():
-    #     mask = data["area"] == area
-    #     area_data = data[mask]
-    #     diff = np.concatenate([[0], np.diff(area_data[column])])
-    #     idxs = data.index[mask]
-    #     data.loc[idxs, new_column] = diff
-    # return data
-
     def make_column(area_data):
-        dcol = np.diff(area_data[column])
-        dt = [delta / np.timedelta64(1, "s") for delta in np.diff(area_data["date"])]
-        return np.concatenate([[0], dcol / dt])
+        col_diff = np.diff(area_data[column])
+        # dt = [
+        #     delta / np.timedelta64(1, "s")
+        #     for delta in np.diff(area_data["date"])
+        # ]
+        return np.concatenate([[0], col_diff])
 
     return add_column_by_area(data, new_column, make_column)
 
@@ -292,40 +270,66 @@ def project_time_series(ref, ts, key=None, reversed=False):
 
 def interpolate_yearly(monthly_data, yearly_resampled, col, interpolate=True):
     assert col in yearly_resampled.columns
-    # by month and area
-    # yearly data covers range 1999 to 2019 (all on dec 1)
-    # for the years in the monthly data that aren't covered in the yearly data, we just copy the nearest yearly data
-    min_year = 1999
-    max_year = 2019
 
     for a in yearly_resampled.area.unique():
         if a not in monthly_data.area.unique():
             continue
 
-        # copy interpolated data between min and max year
-        monthly_data.loc[
-            (monthly_data.area == a) & (monthly_data.year > min_year) &
-            (monthly_data.year <= max_year),
-            col] = yearly_resampled.loc[(yearly_resampled.area == a)
-                                        & (yearly_resampled.year > min_year) &
-                                        (yearly_resampled.year <= max_year),
-                                        col].values
+        idx_start = yearly_resampled.loc[yearly_resampled.area == a,
+                                         col].first_valid_index()
+        idx_end = yearly_resampled.loc[yearly_resampled.area == a,
+                                       col].last_valid_index()
 
-        # copy constant-filled data before min year
-        monthly_data.loc[(monthly_data.area == a)
-                         & (monthly_data.year <= min_year),
-                         col] = yearly_resampled.loc[
-                             (yearly_resampled.area == a)
-                             & (yearly_resampled.year == min_year),
-                             col].values[0]
+        if idx_start is None:
+            # the area does not contain any data for the given col, so skip
+            continue
+        min_year = yearly_resampled.loc[idx_start].year
+        min_month = yearly_resampled.loc[idx_start].month
+
+        max_year = yearly_resampled.loc[idx_end].year
+        max_month = yearly_resampled.loc[idx_end].month
+
+        # copy interpolated data between min and max year
+        monthly_data.loc[(monthly_data.area == a) & (
+            (monthly_data.year > min_year) |  # after min year
+            (((monthly_data.year == min_year)) &  # or, min year + 
+             (monthly_data.month >= min_month))  # after min month
+        ) & ((monthly_data.year < max_year) |  # before max year
+             (((monthly_data.year == max_year)) &  # or, max yr +
+              (monthly_data.month <= max_month))  # before max month
+             ), col] = yearly_resampled.loc[(yearly_resampled.area == a) & (
+                 (yearly_resampled.year > min_year) |  # after min year
+                 (((yearly_resampled.year == min_year)) &  # or, min year + 
+                  (yearly_resampled.month >= min_month))  # after min month
+             ) & ((yearly_resampled.year < max_year) |  # before max year
+                  (((yearly_resampled.year == max_year)) &  # or, max yr +
+                   (yearly_resampled.month <= max_month))  # before max month
+                  ), col].values
+        # this might copy some empty values but thats ok since we will extrapolate those next
+
+        # copy constant-filled data before min year & month
+        monthly_data.loc[(monthly_data.area == a) & (
+            (monthly_data.year < min_year) |  # before min year
+            (((monthly_data.year == min_year)) &  # or, min year + 
+             (monthly_data.month <= min_month))  # before min month
+        ), col] = yearly_resampled.loc[
+            (yearly_resampled.area == a) & (yearly_resampled.year == min_year)
+            &  # min year
+            (yearly_resampled.month == min_month),  # min month
+            col].values[0]
 
         # copy constant-filled data after max year
         monthly_data.loc[(monthly_data.area == a)
-                         & (monthly_data.year > max_year),
+                         &
+                         ((monthly_data.year > max_year) |  # after max year
+                          (((monthly_data.year == max_year)) &  # or, max yr +
+                           (monthly_data.month >= max_month))  # after max month
+                          ),
                          col] = yearly_resampled.loc[
                              (yearly_resampled.area == a)
-                             & (yearly_resampled.year == max_year) &
-                             (yearly_resampled.month == 12), col].values[0]
+                             & (yearly_resampled.year == max_year) &  # max yr
+                             (yearly_resampled.month == max_month),  # max month
+                             col].values[0]
 
     return monthly_data
 
