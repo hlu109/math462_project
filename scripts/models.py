@@ -2,7 +2,10 @@ import tensorflow as tf
 
 
 class AR_LSTM(tf.keras.Model):
-    """ autoregressive LSTM """
+    """ autoregressive LSTM 
+    
+        modified from https://www.tensorflow.org/tutorials/structured_data/time_series
+    """
 
     def __init__(self, units, lookback, input_fts, out_steps):
         super().__init__()
@@ -42,6 +45,61 @@ class AR_LSTM(tf.keras.Model):
             # Execute one lstm step.
             x, state = self.lstm_cell(x, states=state, training=training)
             # Convert the lstm output to a prediction.
+            prediction = self.dense(x)
+            # Add the prediction to the output.
+            predictions.append(prediction)
+
+        # predictions.shape => (time, batch, features)
+        predictions = tf.stack(predictions)
+        # predictions.shape => (batch, time, features)
+        predictions = tf.transpose(predictions, [1, 0, 2])
+        return predictions
+
+
+class AR_RNN(tf.keras.Model):
+    """ autoregressive simpleRNN 
+    
+        modified from https://www.tensorflow.org/tutorials/structured_data/time_series
+    """
+
+    def __init__(self, units, lookback, input_fts, out_steps):
+        super().__init__()
+        self.out_steps = out_steps
+        self.units = units
+        self.rnn_cell = tf.keras.layers.SimpleRNNCell(
+            units,
+            input_shape=(lookback, input_fts),
+        )
+        # Also wrap the rnn_cell in an RNN to simplify the `warmup` method.
+        self.rnn = tf.keras.layers.RNN(self.rnn_cell, return_state=True)
+        self.dense = tf.keras.layers.Dense(input_fts)
+
+    def warmup(self, inputs):
+        # inputs.shape => (batch, time, features)
+        # x.shape => (batch, rnn_units)
+        x, *state = self.rnn(inputs)
+
+        # predictions.shape => (batch, features)
+        prediction = self.dense(x)
+        # print('prediction', prediction.item())
+        return prediction, state
+
+    def call(self, inputs, training=None):
+        # Use a TensorArray to capture dynamically unrolled outputs.
+        predictions = []
+        # Initialize the RNN state.
+        prediction, state = self.warmup(inputs)
+
+        # Insert the first prediction.
+        predictions.append(prediction)
+
+        # Run the rest of the prediction steps.
+        for n in range(1, self.out_steps):
+            # Use the last prediction as input.
+            x = prediction
+            # Execute one RNN step.
+            x, state = self.rnn_cell(x, states=state, training=training)
+            # Convert the RNN output to a prediction.
             prediction = self.dense(x)
             # Add the prediction to the output.
             predictions.append(prediction)
