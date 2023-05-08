@@ -193,19 +193,11 @@ def add_column_by_area(data, new_column, make_column):
 
 
 def add_column_derivative(data, column, new_column):
-    # data[new_column] = np.full(data.shape[0], np.nan)
-    # for area in data["area"].unique():
-    #     mask = data["area"] == area
-    #     area_data = data[mask]
-    #     diff = np.concatenate([[0], np.diff(area_data[column])])
-    #     idxs = data.index[mask]
-    #     data.loc[idxs, new_column] = diff
-    # return data
-
     def make_column(area_data):
-        dcol = np.diff(area_data[column])
-        dt = [delta / np.timedelta64(1, "s") for delta in np.diff(area_data["date"])]
-        return np.concatenate([[0], dcol / dt])
+        # dcol = np.diff(area_data[column])
+        # dt = [delta / np.timedelta64(1, "s") for delta in np.diff(area_data["date"])]
+        # return np.concatenate([[0], dcol / dt])
+        return np.concatenate([[0], np.diff(area_data[column])])
 
     return add_column_by_area(data, new_column, make_column)
 
