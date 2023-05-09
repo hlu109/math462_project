@@ -149,20 +149,17 @@ def load_dataset():
     return monthly_data, yearly_data
 
 
-def load_interpolated_data():
+def load_interpolated_data(interpolate_out_of_range=True):
     """ Returns a single dataframe containing monthly data, along with yearly 
         data that has been interpolated at a monthly frequency. 
     """
     monthly_data, yearly_data = load_dataset()
     yearly_resampled = clean_load_dataset(
         "../dataset/housing_in_london_yearly_variables_resampled.csv")
-    for col in [
-            'median_salary', 'life_satisfaction', 'population_size',
-            'number_of_jobs', 'area_size', 'no_of_houses'
-    ]:
-        monthly_data = interpolate_yearly(monthly_data,
-                                          yearly_resampled,
-                                          col=col)
+    for col in ['median_salary', 'life_satisfaction', 'population_size',
+            'number_of_jobs', 'area_size', 'no_of_houses']:
+        monthly_data = interpolate_yearly(monthly_data, yearly_resampled, col,
+                                          interpolate_out_of_range)
     return monthly_data
 
 
@@ -177,6 +174,7 @@ def add_column_by_area(data, new_column, make_column):
 
 
 def add_column_derivative(data, column, new_column):
+
     def make_column(area_data):
         # dcol = np.diff(area_data[column])
         # dt = [delta / np.timedelta64(1, "s") for delta in np.diff(area_data["date"])]
@@ -266,7 +264,10 @@ def project_time_series(ref, ts, key=None, reversed=False):
         yield (r_last, counter)
 
 
-def interpolate_yearly(monthly_data, yearly_resampled, col, interpolate=True):
+def interpolate_yearly(monthly_data,
+                       yearly_resampled,
+                       col,
+                       interpolate_out_of_range=True):
     assert col in yearly_resampled.columns
 
     for a in yearly_resampled.area.unique():
@@ -305,29 +306,43 @@ def interpolate_yearly(monthly_data, yearly_resampled, col, interpolate=True):
                   ), col].values
         # this might copy some empty values but thats ok since we will extrapolate those next
 
-        # copy constant-filled data before min year & month
-        monthly_data.loc[(monthly_data.area == a) & (
-            (monthly_data.year < min_year) |  # before min year
-            (((monthly_data.year == min_year)) &  # or, min year + 
-             (monthly_data.month <= min_month))  # before min month
-        ), col] = yearly_resampled.loc[
-            (yearly_resampled.area == a) & (yearly_resampled.year == min_year)
-            &  # min year
-            (yearly_resampled.month == min_month),  # min month
-            col].values[0]
+        if interpolate_out_of_range:
+            # copy constant-filled data before min year & month
+            monthly_data.loc[(monthly_data.area == a) & (
+                (monthly_data.year < min_year) |  # before min year
+                (((monthly_data.year == min_year)) &  # or, min year + 
+                 (monthly_data.month <= min_month))  # before min month
+            ), col] = yearly_resampled.loc[
+                (yearly_resampled.area == a) &
+                (yearly_resampled.year == min_year)
+                &  # min year
+                (yearly_resampled.month == min_month),  # min month
+                col].values[0]
 
-        # copy constant-filled data after max year
-        monthly_data.loc[(monthly_data.area == a)
-                         &
-                         ((monthly_data.year > max_year) |  # after max year
-                          (((monthly_data.year == max_year)) &  # or, max yr +
-                           (monthly_data.month >= max_month))  # after max month
-                          ),
-                         col] = yearly_resampled.loc[
-                             (yearly_resampled.area == a)
-                             & (yearly_resampled.year == max_year) &  # max yr
-                             (yearly_resampled.month == max_month),  # max month
-                             col].values[0]
+            # copy constant-filled data after max year
+            monthly_data.loc[
+                (monthly_data.area == a)
+                & ((monthly_data.year > max_year) |  # after max year
+                   (((monthly_data.year == max_year)) &  # or, max yr +
+                    (monthly_data.month >= max_month))  # after max month
+                   ), col] = yearly_resampled.loc[
+                       (yearly_resampled.area == a)
+                       & (yearly_resampled.year == max_year) &  # max yr
+                       (yearly_resampled.month == max_month),  # max month
+                       col].values[0]
+        else:
+            monthly_data.loc[(monthly_data.area == a) & (
+                (monthly_data.year < min_year) |  # before min year
+                (((monthly_data.year == min_year)) &  # or, min year + 
+                 (monthly_data.month <= min_month))  # before min month
+            ), col] = np.nan
+
+            monthly_data.loc[
+                (monthly_data.area == a)
+                & ((monthly_data.year > max_year) |  # after max year
+                   (((monthly_data.year == max_year)) &  # or, max yr +
+                    (monthly_data.month >= max_month))  # after max month
+                   ), col] = np.nan
 
     return monthly_data
 
@@ -354,18 +369,23 @@ def plot_multi_acf(data, lags, titles, suptitle='', ylim=None, partial=False):
     fig.tight_layout()
 
 
-def create_windowed_dataset(dataset, look_back=1, look_forward=1):
+def create_windowed_dataset(dataset, cols, look_back=1, look_forward=1):
     """ creates new time series data with past datapoints as input features. 
     
     Copied from https://machinelearningmastery.com/time-series-prediction-lstm-recurrent-neural-networks-python-keras/
     
         Args:
-            dataset: time series array
+            dataset: pd dataframe
             look_back (int): num of previous time steps to use as input variables to predict the next time period
     """
+    dataset = dataset.reset_index(drop=True)
     dataX, dataY = [], []
     for i in range(len(dataset) - look_back - look_forward):
-        a = dataset[i:(i + look_back), 0]
-        dataX.append(a)
-        dataY.append(dataset[(i + look_back):(i + look_back + look_forward), 0])
-    return np.array(dataX), np.array(dataY)
+        # recall loc is end-inclusive
+        x = dataset.loc[i:(i + look_back) - 1, cols].to_numpy()
+        y = dataset.loc[(i + look_back):(i + look_back + look_forward) - 1,
+                        cols].to_numpy()
+        dataX.append(x)
+        dataY.append(y)
+    return np.array(dataX).astype(float), np.array(dataY).astype(float)
+
