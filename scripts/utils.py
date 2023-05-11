@@ -5,7 +5,10 @@ import matplotlib.pyplot as plt
 import itertools
 import numpy as np
 from datetime import datetime
+
 import statsmodels.tsa.api as smt
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 
 # Default matplotlib colors
 prop_cycle = plt.rcParams['axes.prop_cycle']
@@ -156,8 +159,10 @@ def load_interpolated_data(interpolate_out_of_range=True):
     monthly_data, yearly_data = load_dataset()
     yearly_resampled = clean_load_dataset(
         "../dataset/housing_in_london_yearly_variables_resampled.csv")
-    for col in ['median_salary', 'life_satisfaction', 'population_size',
-            'number_of_jobs', 'area_size', 'no_of_houses']:
+    for col in [
+            'median_salary', 'life_satisfaction', 'population_size',
+            'number_of_jobs', 'area_size', 'no_of_houses'
+    ]:
         monthly_data = interpolate_yearly(monthly_data, yearly_resampled, col,
                                           interpolate_out_of_range)
     return monthly_data
@@ -389,3 +394,19 @@ def create_windowed_dataset(dataset, cols, look_back=1, look_forward=1):
         dataY.append(y)
     return np.array(dataX).astype(float), np.array(dataY).astype(float)
 
+
+def format_data_for_forecasting(area_data, cols, lookback, lookforward):
+    train_df, test_df = train_test_split(area_data[cols],
+                                         test_size=0.3,
+                                         shuffle=False)
+
+    # normalize the data
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    train_df[cols] = scaler.fit_transform(train_df[cols])
+    test_df[cols] = scaler.transform(test_df[cols])
+
+    X_train, y_train = create_windowed_dataset(train_df, cols, lookback,
+                                                     lookforward)
+    X_test, y_test = create_windowed_dataset(test_df, cols, lookback,
+                                                   lookforward)
+    return train_df, test_df, X_train, y_train, X_test, y_test, scaler
