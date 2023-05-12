@@ -272,13 +272,13 @@ def fit_hmm(dataset, normps, num_states=2, steps=500, rng=np.random.default_rng(
     initial_probs = np.exp(initial_logits) / np.sum(np.exp(initial_logits))
     return loss_history, hmm, ((initial_logits, initial_probs), (get_transition_logits(), get_transition_probs()))
 
-def plot_emissions(hmm, observation_types=None, save=False, savedir=None):
+def plot_emissions(hmm, observation_types=None, save=False, show=True, savedir=None):
     joint_dists = hmm.observation_distribution
     num_obs_types = len(joint_dists.distributions)
     if observation_types is None:
         observation_types = range(num_obs_types)
     
-    fig, axs = plt.subplots(1, num_obs_types, figsize=(5 * num_obs_types, 5))
+    fig, axs = plt.subplots(1, num_obs_types, figsize=(9 * num_obs_types, 5))
     if type(axs) != np.ndarray:
         axs = np.array([axs])
     num = 1001
@@ -292,11 +292,12 @@ def plot_emissions(hmm, observation_types=None, save=False, savedir=None):
             ax.plot(x[:, 0], y[:, i], label=label)
             ax.set_title(f"{observation_type} distributions")
             ax.legend(loc="upper right")
-    plt.show()
+    if show:
+        plt.show()
     if save:
         utils.savefig(fig, f"{savedir}/emissions.png")
 
-def plot_posterior_probs(dataset, normps, hmm, hmm_params, unified=False, save=False, savedir=None):
+def plot_posterior_probs(dataset, normps, hmm, hmm_params, unified=False, save=False, show=True, savedir=None):
     observations, _ = dataset
     normed_obs, _ = normalize(dataset, normps)
     obs_means, obs_stds, _, _ = normps
@@ -318,7 +319,7 @@ def plot_posterior_probs(dataset, normps, hmm, hmm_params, unified=False, save=F
             ax.legend(loc=4)
             ax.grid(True, color="white")
 
-            colors = [utils.colors[i] for i in states]
+            colors = [color for _, color in zip(states, utils.colors)]
             n = np.arange(num_observations)
             locs = obs_dist.loc.numpy()[states] * obs_stds[i] + obs_means[i]
             scales = obs_dist.scale.numpy()[states] * obs_stds[i]
@@ -336,17 +337,18 @@ def plot_posterior_probs(dataset, normps, hmm, hmm_params, unified=False, save=F
                     title =                 f"State {state}",
                     label =                 observation_types[i],
                     ylabel =                observation_types[i])
-                colors = [utils.colors[i] for i in states]
+                colors = [color for _, color in zip(states, utils.colors)]
                 n = np.arange(num_observations)
                 locs = obs_dist.loc.numpy()[states] * obs_stds[i] + obs_means[i]
                 scales = obs_dist.scale.numpy()[states] * obs_stds[i]
                 ax2.fill_between(n, -2 * scales + locs, 2 * scales + locs, alpha=0.4)
                 ax2.scatter(n, locs, c=colors, marker='.')
-    plt.show()
+    if show:
+        plt.show()
     if save:
         utils.savefig(fig, f"{savedir}/posterior_probs.png")
 
-def plot_covariate_probs(dataset, hmm_params, covariate_types=None, unified=False, save=False, savedir=None):
+def plot_covariate_probs(dataset, hmm_params, covariate_types=None, unified=False, save=False, show=True, savedir=None):
     _, covariates = dataset
     _, _, num_cov_types = get_counts(dataset)
 
@@ -366,7 +368,8 @@ def plot_covariate_probs(dataset, hmm_params, covariate_types=None, unified=Fals
                 ax.plot(transition_probs[:, i, j], c="blue", lw=3)
                 ax.set_ylim(0., 1.1)
                 ax.grid(True, color="white")
-        plt.show()
+        if show:
+            plt.show()
         if save:
             utils.savefig(fig, f"{savedir}/transition_probs.png")
     else:
@@ -382,11 +385,12 @@ def plot_covariate_probs(dataset, hmm_params, covariate_types=None, unified=Fals
                         title = f"Probability S_t = {j} given S_t-1 = {i}",
                         label = covariate_type,
                         ylabel = covariate_type)
-            plt.show()
+            if show:
+                plt.show()
             if save:
                 utils.savefig(fig, f"{savedir}/transition_probs_vs_{covariate_type}.png")
 
-def predict(dataset, normps, hmm, hmm_params):
+def predict(dataset, normps, hmm, hmm_params, months=1):
     '''
     Predict states and observations
     '''
@@ -395,21 +399,28 @@ def predict(dataset, normps, hmm, hmm_params):
     joint_dists = hmm.observation_distribution
     (_, initial_probs), (_, transition_probs) = hmm_params
     predicted_states = [np.argmax(initial_probs)]
-    for t in range(2, num_observations + 1):
+    for t in range(2, num_observations + 1, months):
         if num_cov_types == 0:
             states = np.argmax(forward_backward_alg(
                 observations[:t],
                 initial_probs,
                 transition_probs,
                 joint_dists), axis=1)
-            predicted_states.append(np.argmax(transition_probs[states[-1]]))
+            curr_transition_probs = transition_probs
         else:
             states = np.argmax(forward_backward_alg(
                 observations[:t],
                 initial_probs,
                 transition_probs[:t],
                 joint_dists), axis=1)
-            predicted_states.append(np.argmax(transition_probs[t-2, states[-1]]))
+            curr_transition_probs = transition_probs[t - 2]
+        
+        # Predict the given number of states into the future
+        curr_state = states[-1]
+        for _ in range(months):
+            new_state = np.argmax(curr_transition_probs[curr_state])
+            predicted_states.append(new_state)
+            curr_state = new_state
     predicted_states = np.array(predicted_states)
 
     predicted_observations = np.array([
@@ -418,12 +429,37 @@ def predict(dataset, normps, hmm, hmm_params):
 
     return predicted_states, denormalize((predicted_observations, None), normps)[0]
 
+def predict_average_price(avg_price, predicted_changes, months=1):
+    '''
+    Allows a combination of the integration and stepping methods of predicting average price
+    '''
+    if months is None:
+        months = len(predicted_changes)
+    predicted_average_price = [[avg_price[0, 0]]]
+    for t in range(1, len(predicted_changes), months):
+        predicted_average_price.append(avg_price[t - 1, 0] + np.cumsum(predicted_changes[t:t + months]))
+    return np.concatenate(predicted_average_price).reshape(-1, 1)
+
+def predict_constant(avg_price, months=1):
+    '''
+    Predict that for the following number months, the price will stay constant
+    '''
+    if months is None:
+        months = len(avg_price)
+    predicted_average_price = [avg_price[0, 0]]
+    for t in range(1, len(avg_price), months):
+        predicted_average_price += [avg_price[t - 1, 0]] * months
+    return np.array(predicted_average_price)[:len(avg_price)].reshape(-1, 1)
+
 def rmse(observations, predicted_observations):
     return np.sqrt(np.mean(np.square(observations - predicted_observations)))
 
 if __name__ == "__main__":
     save = True
-    savedir = "../plots/city_of_london"
+    show = True
+    states = 5
+    months = 24
+    savedir = f"../plots/city_of_london/{states}_states/{months}_step"
 
     # Get dataframe
     monthly_data = utils.load_interpolated_data()
@@ -452,64 +488,80 @@ if __name__ == "__main__":
     # Fit the hmm and plot the loss history
     print("Fitting the hmm")
     normps = get_dataset_normalization_params(train)  # Necessary to denormalize later
-    loss_history, hmm, hmm_params = fit_hmm(train, normps, num_states=10, steps=1000)
+    loss_history, hmm, hmm_params = fit_hmm(train, normps, num_states=states, steps=1000)
+    if np.any(np.isnan(loss_history)):
+        print("Could not fit the hmm")
+        exit()
     print("Fitting finished")
     plt.plot(loss_history)
     plt.xlabel("training steps")
     plt.ylabel("Loss (negative log likelihood)")
     fig = plt.gcf()
-    plt.show()
+    if show:
+        plt.show()
     if save:
         utils.savefig(fig, f"{savedir}/loss_history.png")
 
     # Plot various information about the hmm
-    plot_emissions(hmm, observation_types, save=save, savedir=savedir)
-    plot_posterior_probs(train, normps, hmm, hmm_params, unified=True, save=save, savedir=savedir)
-    plot_covariate_probs(train, hmm_params, covariate_types, unified=True, save=save, savedir=savedir)
+    plot_emissions(hmm, observation_types, save=save, show=show, savedir=savedir)
+    plot_posterior_probs(train, normps, hmm, hmm_params, unified=True, save=save, show=show, savedir=savedir)
+    plot_covariate_probs(train, hmm_params, covariate_types, unified=True, save=save, show=show, savedir=savedir)
 
     # Predict and plot predictions
-    _, train_predict = predict(train, normps, hmm, hmm_params)
-    _, test_predict = predict(test, normps, hmm, hmm_params)
+    _, train_predict = predict(train, normps, hmm, hmm_params, months=months)
+    _, test_predict = predict(test, normps, hmm, hmm_params, months=months)
     x_all = list(range(len(dataset[0])))
     x_train = list(range(len(train[0]))) 
     x_test = list(range(len(train[0]), len(train[0]) + len(test[0])))
 
-    print(f"Train error avg_p_d1: {rmse(train[0], train_predict)}")
-    print(f"Test error avg_p_d1: {rmse(test[0], test_predict)}")
+    # Plot average price change vs predicted average price change
+    train_error = rmse(train[0], train_predict)
+    test_error = rmse(test[0], test_predict)
+    print(f"Observations vs Predicted Observations")
+    print(f"Train error avg_p_d1: {train_error}")
+    print(f"Test error avg_p_d1: {test_error}")
     plt.plot(x_all, dataset[0])
-    plt.plot(x_train, train_predict, label="train")
-    plt.plot(x_test, test_predict, label="val")
+    plt.plot(x_train, train_predict, label=f"train: rmse={train_error:.2f}")
+    plt.plot(x_test, test_predict, label=f"val: rmse={test_error:.2f}")
     plt.ylabel("Change in average price (\xA3/month)")
+    plt.title("Observations vs Predicted Observations")
     plt.legend()
     fig = plt.gcf()
-    plt.show()
+    if show:
+        plt.show()
     if save:
         utils.savefig(fig, f"{savedir}/obs_vs_pred_obs.png")
 
-    y_train = avg_price[0] + np.cumsum(train_predict)
-    y_test = avg_price[len(train[0])] + np.cumsum(test_predict)
-    print(f"Train error avg_p_cum: {rmse(avg_price_train, y_train)}")
-    print(f"Test error avg_p_cum: {rmse(avg_price_test, y_test)}")
-    plt.plot(x_all, avg_price)
-    plt.plot(x_train, y_train, label="train")
-    plt.plot(x_test, y_test, label="val")
-    plt.ylabel("Average price (\xA3)")
-    plt.legend()
-    fig = plt.gcf()
-    plt.show()
-    if save:
-        utils.savefig(fig, f"{savedir}/forecasted_avg_price_cum.png")
+    def plot_average_price_prediction(y_train, y_test, save=False, show=True, msg="predicted_average_price", title="Predicted Average Price"):
+        '''
+        Plot predicted average price training and testing data
+        '''
+        train_error = rmse(avg_price_train, y_train)
+        test_error = rmse(avg_price_test, y_test)
+        print(f"{title}:")
+        print(f"Train error avg_p: {train_error}")
+        print(f"Test error avg_p: {test_error}")
+        plt.plot(x_all, avg_price)
+        plt.plot(x_train, y_train, label=f"train: rmse={train_error:.2f}")
+        plt.plot(x_test, y_test, label=f"val: rmse={test_error:.2f}")
+        plt.ylabel("Average price (\xA3)")
+        plt.title(title)
+        plt.legend()
+        fig = plt.gcf()
+        if show:
+            plt.show()
+        if save:
+            utils.savefig(fig, f"{savedir}/{msg}.png")
+        return train_error, test_error
 
-    y_train = avg_price_train[:-1] + train_predict[1:]
-    y_test = avg_price_test[:-1] + test_predict[1:]
-    print(f"Train error avg_p: {rmse(avg_price_train[:-1], y_train)}")
-    print(f"Test error avg_p: {rmse(avg_price_test[:-1], y_test)}")
-    plt.plot(x_all, avg_price)
-    plt.plot(x_train[1:], y_train, label="train")
-    plt.plot(x_test[1:], y_test, label="val")
-    plt.ylabel("Average price (\xA3)")
-    plt.legend()
-    fig = plt.gcf()
-    plt.show()
-    if save:
-        utils.savefig(fig, f"{savedir}/forecasted_avg_price.png")
+    y_train = predict_average_price(avg_price_train, train_predict, months=None)
+    y_test = predict_average_price(avg_price_test, test_predict, months=None)
+    plot_average_price_prediction(y_train, y_test, save=save, show=show, msg="forecasted_avg_price_cum.png", title="Integrated")
+
+    y_train = predict_average_price(avg_price_train, train_predict, months=months)
+    y_test = predict_average_price(avg_price_test, test_predict, months=months)
+    plot_average_price_prediction(y_train, y_test, save=save, show=show, msg=f"forecasted_avg_price_{months}_step.png", title=f"{months}-step")
+    
+    y_train = predict_constant(avg_price_train, months=months)
+    y_test = predict_constant(avg_price_test, months=months)
+    plot_average_price_prediction(y_train, y_test, save=save, show=show, msg="constant_forecast.png", title="Constant")
