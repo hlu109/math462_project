@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import itertools
 import numpy as np
 from datetime import datetime
+from itertools import cycle
 
 import statsmodels.tsa.api as smt
 from sklearn.model_selection import train_test_split
@@ -12,8 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 # Default matplotlib colors
 prop_cycle = plt.rcParams['axes.prop_cycle']
-colors = prop_cycle.by_key()['color']
-
+colors = cycle(prop_cycle.by_key()['color'])
 
 def find_files(*sources, name=None, extension=None):
     '''
