@@ -396,6 +396,7 @@ def create_windowed_dataset(dataset, cols, look_back=1, look_forward=1):
 
 
 def format_data_for_forecasting(area_data, cols, lookback, lookforward):
+    """ modified from """
     train_df, test_df = train_test_split(area_data[cols],
                                          test_size=0.3,
                                          shuffle=False)

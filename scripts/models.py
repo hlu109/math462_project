@@ -118,6 +118,7 @@ def compile_and_fit_tf(model,
                        y_test,
                        epochs=20,
                        patience=2):
+    """ Modified from https://www.tensorflow.org/tutorials/structured_data/time_series """
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
                                                       patience=patience,
                                                       mode='min')
